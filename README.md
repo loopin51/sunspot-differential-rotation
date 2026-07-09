@@ -44,3 +44,6 @@ http://localhost:8899).
 4. 품질 필터(RMS ≤ 1°, ≥5일) 후 가중 최소제곱으로 Ω = A + B·sin²φ (+C·sin⁴φ) 피팅
 
 파이썬 파이프라인과 대시보드 JS는 동일한 수치를 재현합니다 (검증 완료).
+
+
+> 배포: https://sunspot-differential-rotation.vercel.app
