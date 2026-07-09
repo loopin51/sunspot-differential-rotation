@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>태양 차등회전 대시보드 — 흑점 추적 분석</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23eda100'/%3E%3Ccircle cx='12' cy='18' r='2.4' fill='%23553300'/%3E%3Ccircle cx='21' cy='12' r='1.7' fill='%23553300'/%3E%3C/svg%3E">
+<style>
+:root{
+  --surface:#fcfcfb; --page:#f9f9f7; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,.10);
+  --c-screen:#e34948; --c-other:#2a78d6; --c-fit2:#4a3aa7; --c-fit3:#199e70; --c-ref:#898781;
+  --accent:#2a78d6; --good:#006300;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --surface:#1a1a19; --page:#0d0d0d; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,.10);
+    --c-screen:#e66767; --c-other:#3987e5; --c-fit2:#9085e9; --c-fit3:#199e70; --c-ref:#898781;
+    --accent:#3987e5; --good:#0ca30c;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--page); color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  font-size:14px; line-height:1.55;
+}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 20px 64px}
+header h1{font-size:22px;font-weight:700;margin:0 0 4px}
+header p.sub{color:var(--ink2);margin:0;font-size:13.5px}
+header .src{color:var(--muted);font-size:12px;margin-top:6px}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;
+  border:1px solid var(--border);color:var(--ink2);vertical-align:2px;margin-left:8px}
+
+/* KPI tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:22px 0 18px}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.tile .lab{font-size:12px;color:var(--ink2)}
+.tile .val{font-size:26px;font-weight:600;margin-top:2px}
+.tile .unit{font-size:13px;color:var(--muted);font-weight:400;margin-left:2px}
+.tile .note{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+/* filter row */
+.filters{display:flex;flex-wrap:wrap;gap:18px;align-items:center;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px;padding:10px 16px;margin-bottom:18px}
+.filters .f{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2)}
+.filters input[type=range]{width:110px;accent-color:var(--accent)}
+.filters .fv{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600;min-width:34px}
+.filters .hint{font-size:12px;color:var(--muted);margin-left:auto}
+.filters .rmsf.off #fRms,.filters .rmsf.off .fv{opacity:.4;pointer-events:none}
+.filters .rmsf.off{color:var(--muted)}
+
+/* active-region selection popover */
+.arsel{position:relative}
+#arSelBtn{font-weight:600}
+.arpop{position:absolute;top:calc(100% + 8px);left:0;z-index:30;width:360px;max-width:88vw;
+  background:var(--surface);border:1px solid var(--baseline);border-radius:10px;
+  box-shadow:0 8px 28px rgba(0,0,0,.18);padding:12px}
+.arpop-head{display:flex;justify-content:space-between;align-items:baseline;
+  font-size:12.5px;font-weight:600;margin-bottom:9px}
+.arpop-head .arpop-count{font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
+.arpop-actions{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.arpop-actions .ghost{padding:4px 10px;font-size:12px}
+.arpop-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;
+  max-height:264px;overflow-y:auto;padding-right:2px}
+.archip{display:flex;align-items:center;gap:6px;font-size:11.5px;padding:5px 7px;border-radius:6px;
+  border:1px solid var(--grid);cursor:pointer;color:var(--ink2);user-select:none;
+  white-space:nowrap;font-variant-numeric:tabular-nums}
+.archip:hover{border-color:var(--baseline)}
+.archip.on{background:color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color:var(--accent);color:var(--ink)}
+.archip .box{width:13px;height:13px;border-radius:3px;border:1.5px solid var(--baseline);
+  flex:none;position:relative}
+.archip.on .box{background:var(--accent);border-color:var(--accent)}
+.archip.on .box::after{content:"";position:absolute;left:3.5px;top:1px;width:3px;height:6px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.archip.scr .noaa{font-weight:700;color:var(--c-screen)}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--baseline);margin-bottom:0}
+.tabs button{appearance:none;border:none;background:none;padding:9px 16px;font-size:13.5px;
+  color:var(--ink2);cursor:pointer;border-bottom:2px solid transparent;font-family:inherit}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
+.panel{display:none;background:var(--surface);border:1px solid var(--border);border-top:none;
+  border-radius:0 0 10px 10px;padding:20px}
+.panel.on{display:block}
+.panel h2{font-size:15px;margin:0 0 2px}
+.panel p.desc{color:var(--ink2);font-size:13px;margin:0 0 14px}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12.5px;color:var(--ink2);margin:8px 0 4px}
+.legend .k{display:flex;align-items:center;gap:6px}
+.k .dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 2px var(--surface)}
+.k .ln{width:18px;height:0;border-top:2px solid}
+.k .ln.dash{border-top-style:dashed}
+.k .ln.dot3{border-top-style:dotted;border-top-width:3px}
+
+svg text{font-family:inherit}
+.chartbox{position:relative}
+.chartbox.dim{opacity:.45;transition:opacity .2s}
+.tooltip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:8px 11px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.13);
+  display:none;z-index:5;min-width:130px}
+.tooltip .tt-title{font-weight:700;font-size:13px;margin-bottom:3px}
+.tooltip .row{display:flex;justify-content:space-between;gap:14px}
+.tooltip .row .l{color:var(--ink2)}
+.tooltip .row .v{font-weight:600;font-variant-numeric:tabular-nums}
+
+/* controls inside panels */
+.rowctl{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:12px;font-size:13px;color:var(--ink2)}
+select,input[type=date],input[type=text],input[type=number]{font-family:inherit;font-size:13px;color:var(--ink);
+  background:var(--surface);border:1px solid var(--baseline);border-radius:7px;padding:5px 9px}
+input[type=range].wide{width:260px;accent-color:var(--accent)}
+button.ghost{font-family:inherit;font-size:12.5px;color:var(--ink2);background:none;
+  border:1px solid var(--baseline);border-radius:7px;padding:5px 12px;cursor:pointer}
+button.ghost:hover{color:var(--ink)}
+
+/* tables */
+.tblwrap{overflow-x:auto;max-height:430px;overflow-y:auto;border:1px solid var(--border);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{position:sticky;top:0;background:var(--surface);color:var(--ink2);font-weight:600;
+  border-bottom:1px solid var(--baseline);cursor:pointer;user-select:none}
+tbody tr{border-bottom:1px solid var(--grid)}
+tbody tr.screen{background:color-mix(in srgb, var(--c-screen) 8%, var(--surface))}
+tbody tr.cut{color:var(--muted)}
+tbody tr.ret{box-shadow:inset 3px 0 0 0 var(--good)}
+tbody tr.ret.screen{background:color-mix(in srgb, var(--good) 10%, color-mix(in srgb, var(--c-screen) 8%, var(--surface)))}
+.tag{font-size:10.5px;font-weight:700;border-radius:4px;padding:1px 5px}
+.tag.scr{color:var(--c-screen);border:1px solid var(--c-screen)}
+.tag.ret{color:var(--good);border:1px solid var(--good)}
+
+/* methodology */
+details.method{margin-top:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
+details.method summary{padding:13px 18px;font-weight:600;cursor:pointer;font-size:14px}
+details.method .inner{padding:0 18px 16px;color:var(--ink2);font-size:13.5px}
+details.method .inner b{color:var(--ink)}
+.formula{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:var(--page);
+  border:1px solid var(--border);border-radius:8px;padding:9px 14px;margin:8px 0;color:var(--ink)}
+/* data sources / API */
+.sources{margin-top:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+.sources h3{font-size:14px;margin:0 0 4px}
+.sources .lead{color:var(--ink2);font-size:12.5px;margin:0 0 12px}
+.sources ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.sources li{display:flex;flex-direction:column;gap:2px;padding-left:12px;border-left:2px solid var(--accent)}
+.sources .name{font-size:13px;font-weight:600}
+.sources .name a{color:var(--accent);text-decoration:none}
+.sources .name a:hover{text-decoration:underline}
+.sources .ep{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--ink2);word-break:break-all}
+.sources .ep a{color:var(--ink2)}
+.sources .desc{font-size:12px;color:var(--muted)}
+footer{margin-top:18px;color:var(--muted);font-size:12px}
+footer a{color:var(--ink2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>태양 차등회전 대시보드 <span class="badge" id="modeBadge">HEK 데이터 내장</span></h1>
+  <p class="sub">흑점(활성영역) 추적으로 측정한 위도별 회전 각속도 — Helioviewer 화면의 활성영역 11개 포함</p>
+  <p class="src" id="srcLine">데이터: NASA HEK (HMI SHARP + NOAA SWPC Observer) · 기간 2026-03-29 ~ 2026-07-29 (2026-05-29 ±2개월)</p>
+</header>
+
+<div class="tiles" id="tiles"></div>
+
+<div class="filters" id="filterRow">
+  <label class="f">좌표계 <select id="fCoord">
+    <option value="hgc" selected>hgc (Carrington)</option>
+    <option value="hgs">hgs (Stonyhurst)</option>
+  </select></label>
+  <span style="color:var(--baseline)">|</span>
+  <span style="font-weight:600;font-size:13px">기간</span>
+  <label class="f"><input type="date" id="fStart"> ~ <input type="date" id="fEnd"></label>
+  <button class="ghost" id="fFull">전체 기간</button>
+  <span style="color:var(--baseline)">|</span>
+  <label class="f rmsf"><input type="checkbox" id="fRmsOn" checked> 피팅 RMS ≤ <input type="range" id="fRms" min="0.3" max="3" step="0.1" value="1.0"><span class="fv" id="fRmsV">1.0</span>°</label>
+  <label class="f">최소 관측일 <input type="range" id="fDays" min="3" max="10" step="1" value="5"><span class="fv" id="fDaysV">5</span>일</label>
+  <div class="f arsel">
+    <button class="ghost" id="arSelBtn">활성영역: <span id="arSelCount">전체</span> ▾</button>
+    <div class="arpop" id="arPop" hidden>
+      <div class="arpop-head">
+        <span>처리할 활성영역 선택</span>
+        <span class="arpop-count" id="arPopCount"></span>
+      </div>
+      <div class="arpop-actions">
+        <button class="ghost" data-arpreset="all">전체</button>
+        <button class="ghost" data-arpreset="none">해제</button>
+        <button class="ghost" data-arpreset="screen">화면 AR</button>
+        <button class="ghost" data-arpreset="good">필터 통과</button>
+      </div>
+      <div class="arpop-grid" id="arGrid"></div>
+    </div>
+  </div>
+  <span class="hint">필터는 아래 모든 그래프·표·통계에 동시에 적용됩니다</span>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button data-t="rotation" class="on">차등회전</button>
+  <button data-t="track">AR 추적</button>
+  <button data-t="map">태양면 지도</button>
+  <button data-t="table">데이터 표</button>
+</nav>
+
+<section class="panel on" id="p-rotation">
+  <h2>위도별 회전 각속도 Ω(φ)</h2>
+  <p class="desc" id="rotDesc">각 점은 활성영역 하나 — Carrington(hgc) 경도 표류율로 구한 항성 회전율입니다. 점 크기는 추적 신뢰도(기간/RMS).</p>
+  <div class="legend" id="rotLegend"></div>
+  <div class="chartbox" id="rotChart"></div>
+</section>
+
+<section class="panel" id="p-track">
+  <h2>활성영역 경도·위도 추적</h2>
+  <p class="desc" id="trackDesc">Carrington 경도의 시간 변화 기울기가 곧 차등회전 신호입니다 (기울기 + 14.1844 = Ω).</p>
+  <div class="rowctl">
+    <label>활성영역 <select id="trackSel"></select></label>
+    <span id="trackStats" style="color:var(--ink2)"></span>
+  </div>
+  <div class="legend" id="trackLegend"></div>
+  <div class="chartbox" id="trackChart1"></div>
+  <div class="chartbox" id="trackChart2" style="margin-top:14px"></div>
+</section>
+
+<section class="panel" id="p-map">
+  <h2>태양면 위 활성영역 위치</h2>
+  <p class="desc">지구에서 본 태양면(정사영). 날짜를 움직이면 흑점들이 동→서(왼→오른쪽)로 회전해 가는 것이 보입니다.</p>
+  <div class="rowctl">
+    <input type="range" class="wide" id="mapDate" min="0" max="0" step="1" value="0">
+    <span class="fv" id="mapDateV" style="min-width:100px"></span>
+    <button class="ghost" id="mapPlay">▶ 재생</button>
+  </div>
+  <div class="legend" id="mapLegend"></div>
+  <div class="chartbox" id="mapChart"></div>
+</section>
+
+<section class="panel" id="p-table">
+  <h2>데이터 표</h2>
+  <p class="desc">모든 값은 그래프와 동일한 계산 결과입니다. 열 머리글을 누르면 정렬됩니다.</p>
+  <div class="rowctl">
+    <label><input type="radio" name="tblMode" value="rot" checked> 위도별 회전각속도</label>
+    <label><input type="radio" name="tblMode" value="daily"> 일별 위치 (위도/경도)</label>
+    <label id="tblArWrap" style="display:none">AR <select id="tblAr"></select></label>
+    <button class="ghost" id="csvBtn">CSV 다운로드</button>
+  </div>
+  <p class="desc ret-note" id="retNote" style="display:none">
+    <span class="tag ret" style="margin-right:5px">일치</span>
+    화면 AR(Helioviewer 11개)이 2026-05-29에 가졌던 hgc(Carrington 경도) 값과 ±<input type="number" id="retTolInput" min="0.5" max="30" step="0.5" value="5" style="width:52px">° 안에 드는 모든 행 — AR·날짜 무관하게 hgc 컬럼 값만 비교합니다. 행에 마우스를 올리면 어떤 화면 AR과 일치하는지 보입니다.
+  </p>
+  <div class="tblwrap"><table id="tbl"></table></div>
+</section>
+
+<details class="method">
+  <summary>방법론 — 어떻게 계산했나</summary>
+  <div class="inner">
+    <p><b>1. 데이터.</b> NASA HEK(Heliophysics Event Knowledgebase)에서 활성영역(AR) 검출을 수집합니다
+    — Helioviewer 화면 마커의 원천 데이터와 동일합니다 (HMI SHARP + NOAA SWPC Observer).
+    림 투영오차를 피하려고 |Stonyhurst 경도| ≤ 60° 검출만 쓰고, NOAA 번호·날짜별 <b>중앙값</b>으로 일별 위치를 만듭니다.</p>
+    <p><b>2. 회전 각속도.</b> Carrington 좌표계는 태양과 함께 항성 기준 Ω<sub>C</sub> = 14.1844°/일로 회전합니다.
+    위도 φ의 흑점이 국소 회전율 Ω(φ)로 돌면 Carrington 경도가 그 차이만큼 표류합니다:</p>
+    <div class="formula">dL<sub>C</sub>/dt = Ω(φ) − Ω<sub>C</sub>&nbsp;&nbsp;⇒&nbsp;&nbsp;Ω(φ) = 14.1844 + (L<sub>C</sub>(t) 선형피팅 기울기)</div>
+    <p><b>3. 차등회전 프로파일.</b> AR별 (φ, Ω)에 대해 추적 신뢰도 w = 기간/(RMS+0.1) 가중 최소제곱으로 고전적 프로파일을 피팅합니다:</p>
+    <div class="formula">Ω(φ) = A + B·sin²φ&nbsp;&nbsp;(+ C·sin⁴φ)</div>
+    <p><b>4. 검증.</b> 독립적인 Stonyhurst 경도법(삭망 회전율 → 항성 변환)과 0.1–0.4°/일 이내로 일치하며,
+    적도 회전율은 문헌값(Snodgrass &amp; Ulrich 1990: Ω = 14.71 − 2.39sin²φ − 1.78sin⁴φ, 항성 기준)과 부합합니다.
+    sin²φ 계수가 문헌보다 가파른 것은 흑점 고유운동 산란과 위도 범위(±33°) 제한 때문입니다.</p>
+    <p><b>품질 필터.</b> 피팅 RMS ≤ 1.0°(끄고 켤 수 있음), 관측일 ≥ 5(슬라이더), 추적기간 ≥ 5일.
+    이 3가지 외의 조건(예: 회전율 범위 제한)은 두지 않습니다 — 트랙 생성 전 사전 컷(일별검출 ≥ 3일, 추적 ≥ 2일)만 별도로 적용됩니다.</p>
+  </div>
+</details>
+
+<details class="method">
+  <summary>AR 번호 · 자기장 분류 기호 — 읽는 법</summary>
+  <div class="inner">
+    <p><b>활성영역(AR) 번호.</b> NOAA/SWPC는 흑점군이 반음영-본음영 구조를 갖춘 정도로 조직화됐다고 판단될 때 새 번호를 순차적으로 부여합니다
+    (아주 작은 pore 단계에서는 번호를 붙이지 않음). 번호는 계속 증가만 하며 재사용되지 않습니다 —
+    같은 물리적 흑점군이라도 자전으로 태양 뒷면을 돌고 다시 앞면(동쪽 림)으로 나타나면 새 번호를 받습니다.
+    즉 AR 번호는 흑점의 물리적 정체성이 아니라 <i>지구에서 연속 관측된 구간</i>을 가리키는 식별자입니다.</p>
+    <p><b>자기장 분류(Hale/Mount Wilson).</b> "NOAA 14455 β"처럼 번호 옆에 붙는 기호는 흑점군의 자기극성 복잡도이며
+    플레어 발생 가능성과 상관됩니다.</p>
+    <div class="formula" style="text-align:left;line-height:1.85">
+      <b>α</b> 단일 지배 극성(단순) &nbsp;·&nbsp;
+      <b>β</b> 양극성이 뚜렷이 분리 &nbsp;·&nbsp;
+      <b>γ</b> 양·음극이 뒤섞여 경계 불명확<br>
+      <b>βγ</b> 부분적으로 감마 특성을 가진 베타 &nbsp;·&nbsp;
+      <b>βδ</b>, <b>βγδ</b> — δ(반대 극성 본음영이 같은 반음영 안에 10° 이내로 인접) 포함, 대형 플레어 위험 최고
+    </div>
+    <p>복잡도는 대략 α &lt; β &lt; βγ &lt; γ &lt; βδ &lt; βγδ 순으로 커집니다.</p>
+  </div>
+</details>
+
+<section class="sources">
+  <h3>데이터 출처 · 수집 API</h3>
+  <p class="lead">이 대시보드의 활성영역 위도/경도 데이터는 아래 NASA 천체관측 API에서 수집했습니다.</p>
+  <ul>
+    <li>
+      <span class="name"><a href="https://www.lmsal.com/hek/index.html" target="_blank" rel="noopener">NASA HEK — Heliophysics Event Knowledgebase</a></span>
+      <span class="ep">조회 엔드포인트: <a href="https://www.lmsal.com/hek/her?cmd=search&type=column&event_type=AR" target="_blank" rel="noopener">https://www.lmsal.com/hek/her</a> &nbsp;(<code>event_type=AR</code>)</span>
+      <span class="desc">활성영역 검출의 Stonyhurst·Carrington 좌표 원천. Helioviewer 화면 마커와 동일한 데이터베이스입니다.</span>
+    </li>
+    <li>
+      <span class="name">HEK 검출 프레임워크 — HMI SHARP &amp; NOAA SWPC Observer</span>
+      <span class="ep"><a href="http://jsoc.stanford.edu/doc/data/hmi/sharp/sharp.htm" target="_blank" rel="noopener">SDO/HMI SHARP</a> · <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener">NOAA SWPC</a></span>
+      <span class="desc">HEK 안에서 활성영역 위치를 산출한 두 검출 소스.</span>
+    </li>
+    <li>
+      <span class="name"><a href="https://api.helioviewer.org/docs/v2/" target="_blank" rel="noopener">Helioviewer API</a> · <a href="https://helioviewer.org" target="_blank" rel="noopener">Helioviewer.org</a></span>
+      <span class="ep">이벤트 조회 예: <a href="https://api.helioviewer.org/v2/events/?startTime=2026-05-29T00:00:00Z&eventType=AR" target="_blank" rel="noopener">https://api.helioviewer.org/v2/events/</a></span>
+      <span class="desc">화면 캡처(태양면 위 흑점 마커)의 출처이자 동일 HEK 이벤트를 제공하는 뷰어.</span>
+    </li>
+  </ul>
+</section>
+
+<footer>
+  분석 파이프라인: HEK 수집(fetch_hek.py) → 일별 정리 → Carrington 표류 피팅 → 가중 프로파일 피팅 — 이 페이지의 JS는 Python 파이프라인과 동일한 결과를 재현합니다.
+</footer>
+
+</div>
+<script id="embedded-data" type="application/json">__EMBEDDED_DATA__</script>
+<script>
+"use strict";
+// ============================== analysis pipeline ==============================
+__ANALYSIS_JS__
+// ============================== app ==============================
+__APP_JS__
+</script>
+</body>
+</html>
