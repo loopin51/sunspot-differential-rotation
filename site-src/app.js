@@ -33,7 +33,7 @@ const state = {
   dateStart: DATA_MIN, dateEnd: DATA_MAX,
   rmsMax: 1.0, rmsOn: true, minDays: 5,
   selected: new Set(ALL_ARS), // active regions to process (default: all)
-  coord: "hgc", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
+  coord: "hgs", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
   retTol: 5, // hgc(Carrington 경도) 일치 허용오차, deg
   mapIdx: -1, playing: null,
 };

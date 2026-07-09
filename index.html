@@ -172,8 +172,8 @@ footer a{color:var(--ink2)}
 
 <div class="filters" id="filterRow">
   <label class="f">좌표계 <select id="fCoord">
-    <option value="hgc" selected>hgc (Carrington)</option>
-    <option value="hgs">hgs (Stonyhurst)</option>
+    <option value="hgc">hgc (Carrington)</option>
+    <option value="hgs" selected>hgs (Stonyhurst)</option>
   </select></label>
   <span style="color:var(--baseline)">|</span>
   <span style="font-weight:600;font-size:13px">기간</span>
@@ -489,7 +489,7 @@ const state = {
   dateStart: DATA_MIN, dateEnd: DATA_MAX,
   rmsMax: 1.0, rmsOn: true, minDays: 5,
   selected: new Set(ALL_ARS), // active regions to process (default: all)
-  coord: "hgc", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
+  coord: "hgs", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
   retTol: 5, // hgc(Carrington 경도) 일치 허용오차, deg
   mapIdx: -1, playing: null,
 };
