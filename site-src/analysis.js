@@ -1,6 +1,5 @@
 // ===== Solar differential-rotation pipeline (shared by embedded & live modes) =====
 const OMEGA_C = 14.1844;          // deg/day, sidereal Carrington rotation rate
-const SID_SYN = 360 / 365.25;     // 0.98565 deg/day, synodic -> sidereal correction
 
 function median(a) {
   const s = [...a].sort((x, y) => x - y), n = s.length;
@@ -47,8 +46,9 @@ function linfit(x, y) { // least squares y = a + b x
 
 // daily rows -> per-AR tracks with rotation rates
 // coord = "hgc": fit the Carrington longitude drift; Omega_sid = 14.1844 + slope.
-// coord = "hgs": fit the Stonyhurst longitude drift (= synodic rate);
-//                Omega_sid = slope + 0.98565 (add Earth's orbital motion).
+// coord = "hgs": fit the Stonyhurst (hgs_x) longitude drift directly; Omega = slope.
+//                No Earth-orbital correction is applied, so this is the raw
+//                synodic (Earth-observed) drift rate, not a sidereal rate.
 function fitTracks(daily, screenSet, coord = "hgc") {
   const byAR = new Map();
   for (const r of daily) {
@@ -67,7 +67,7 @@ function fitTracks(daily, screenSet, coord = "hgc") {
     // (r[2]) stays within one disk passage (|lon|<=60), so no unwrap.
     const lon = coord === "hgs" ? rows.map(r => r[2]) : unwrapDeg(rows.map(r => r[4]));
     const f = linfit(days, lon);
-    const omega = coord === "hgs" ? f.b + SID_SYN : OMEGA_C + f.b;
+    const omega = coord === "hgs" ? f.b : OMEGA_C + f.b;
     const meanLat = rows.reduce((s, r) => s + r[3], 0) / rows.length;
     tracks.push({
       ar, meanLat, nDays: rows.length, span, coord,

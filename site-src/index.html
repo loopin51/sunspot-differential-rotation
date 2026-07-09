@@ -210,7 +210,7 @@ footer a{color:var(--ink2)}
 
 <section class="panel on" id="p-rotation">
   <h2>위도별 회전 각속도 Ω(φ)</h2>
-  <p class="desc" id="rotDesc">각 점은 활성영역 하나 — Carrington(hgc) 경도 표류율로 구한 항성 회전율입니다. 점 크기는 추적 신뢰도(기간/RMS).</p>
+  <p class="desc" id="rotDesc">각 점은 활성영역 하나 — Stonyhurst(hgs_x) 경도의 시간 변화 기울기를 보정 없이 그대로 쓴 삭망(지구 관측) 회전율입니다. 점 크기는 추적 신뢰도(기간/RMS).</p>
   <div class="legend" id="rotLegend"></div>
   <div class="chartbox" id="rotChart"></div>
 </section>
@@ -264,10 +264,12 @@ footer a{color:var(--ink2)}
     <p><b>2. 회전 각속도.</b> Carrington 좌표계는 태양과 함께 항성 기준 Ω<sub>C</sub> = 14.1844°/일로 회전합니다.
     위도 φ의 흑점이 국소 회전율 Ω(φ)로 돌면 Carrington 경도가 그 차이만큼 표류합니다:</p>
     <div class="formula">dL<sub>C</sub>/dt = Ω(φ) − Ω<sub>C</sub>&nbsp;&nbsp;⇒&nbsp;&nbsp;Ω(φ) = 14.1844 + (L<sub>C</sub>(t) 선형피팅 기울기)</div>
+    <p>좌표계를 hgs(Stonyhurst)로 바꾸면 지구 공전 보정 없이 hgs_x(중앙자오선 기준 경도)의 시간 변화 기울기를
+    그대로 Ω로 사용합니다 — 이건 항성 회전율이 아니라 지구에서 본 삭망(synodic) 회전율입니다.</p>
     <p><b>3. 차등회전 프로파일.</b> AR별 (φ, Ω)에 대해 추적 신뢰도 w = 기간/(RMS+0.1) 가중 최소제곱으로 고전적 프로파일을 피팅합니다:</p>
     <div class="formula">Ω(φ) = A + B·sin²φ&nbsp;&nbsp;(+ C·sin⁴φ)</div>
-    <p><b>4. 검증.</b> 독립적인 Stonyhurst 경도법(삭망 회전율 → 항성 변환)과 0.1–0.4°/일 이내로 일치하며,
-    적도 회전율은 문헌값(Snodgrass &amp; Ulrich 1990: Ω = 14.71 − 2.39sin²φ − 1.78sin⁴φ, 항성 기준)과 부합합니다.
+    <p><b>4. 검증.</b> hgc 기반 결과는 독립적인 Stonyhurst 경도법(삭망 회전율에 지구 공전분 +0.986°/일을 더해 항성 변환한 값)과
+    0.1–0.4°/일 이내로 일치했으며, 적도 회전율은 문헌값(Snodgrass &amp; Ulrich 1990: Ω = 14.71 − 2.39sin²φ − 1.78sin⁴φ, 항성 기준)과 부합합니다.
     sin²φ 계수가 문헌보다 가파른 것은 흑점 고유운동 산란과 위도 범위(±33°) 제한 때문입니다.</p>
     <p><b>품질 필터.</b> 피팅 RMS ≤ 1.0°(끄고 켤 수 있음), 관측일 ≥ 5(슬라이더), 추적기간 ≥ 5일.
     이 3가지 외의 조건(예: 회전율 범위 제한)은 두지 않습니다 — 트랙 생성 전 사전 컷(일별검출 ≥ 3일, 추적 ≥ 2일)만 별도로 적용됩니다.</p>

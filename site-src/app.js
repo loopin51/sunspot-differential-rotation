@@ -157,7 +157,7 @@ const fmt = (v, d = 2) => v == null || !isFinite(v) ? "–" : v.toFixed(d);
 function renderTiles() {
   const { prof, tracks } = M, f2 = prof.fit2;
   const tiles = [
-    ["적도 회전율 A", f2 ? fmt(f2.A) : "–", "°/일", f2 ? `회전주기 ${fmt(360 / f2.A, 1)}일 (항성)` : "피팅 불가"],
+    ["적도 회전율 A", f2 ? fmt(f2.A) : "–", "°/일", f2 ? `회전주기 ${fmt(360 / f2.A, 1)}일 (${state.coord === "hgs" ? "삭망" : "항성"})` : "피팅 불가"],
     ["차등 계수 B", f2 ? fmt(f2.B) : "–", "°/일", "Ω = A + B·sin²φ"],
     ["사용 활성영역", `${prof.good.length}`, `/ ${tracks.length}`, "품질 필터 통과 / 전체 추적"],
     ["피팅 R²", f2 ? fmt(f2.r2) : "–", "", "가중 최소제곱 (2항)"],
@@ -177,10 +177,10 @@ function renderTiles() {
 // ---------- rotation chart ----------
 function renderRotation() {
   const box = $("rotChart"), { prof, tracks, goodSet } = M;
-  const basis = state.coord === "hgs"
-    ? "Stonyhurst(hgs) 경도 표류율(삭망) → 항성 변환(+0.986°/일)로"
-    : "Carrington(hgc) 경도 표류율로";
-  $("rotDesc").textContent = `각 점은 활성영역 하나 — ${basis} 구한 항성 회전율입니다. 점 크기는 추적 신뢰도(기간/RMS).`;
+  const isHgsMode = state.coord === "hgs";
+  $("rotDesc").textContent = isHgsMode
+    ? "각 점은 활성영역 하나 — Stonyhurst(hgs_x) 경도의 시간 변화 기울기를 보정 없이 그대로 쓴 삭망(지구 관측) 회전율입니다. 점 크기는 추적 신뢰도(기간/RMS)."
+    : "각 점은 활성영역 하나 — Carrington(hgc) 경도 표류율로 구한 항성 회전율입니다. 점 크기는 추적 신뢰도(기간/RMS).";
   const pts = tracks.filter(t => goodSet.has(t.ar));
   if (!pts.length) {
     box.textContent = "";
@@ -197,7 +197,7 @@ function renderRotation() {
   const y0 = Math.min(...allO) - 0.3, y1 = Math.max(...allO) + 0.35;
   const cut = tracks.filter(t => !goodSet.has(t.ar) && t.omega > y0 && t.omega < y1);
   const c = baseChart(box, { h: 440, x: [-40, 40], y: [y0, y1],
-    xLabel: "태양 위도 φ (deg)", yLabel: "항성 회전 각속도 Ω (deg/day)",
+    xLabel: "태양 위도 φ (deg)", yLabel: isHgsMode ? "삭망 회전 각속도 Ω (deg/day)" : "항성 회전 각속도 Ω (deg/day)",
     yFmt: v => v.toFixed(1), title: "위도별 회전 각속도" });
   const d2r = Math.PI / 180;
   el("path", { d: curvePath(c, x => SNOD(x * d2r), -40, 40), fill: "none",
@@ -244,7 +244,7 @@ function renderRotation() {
     label: `2항 피팅 Ω = ${fmt(f2.A)} ${f2.B < 0 ? "−" : "+"} ${fmt(Math.abs(f2.B))}·sin²φ` });
   if (f3) legendItems.push({ type: "dot3", color: c.css("--c-fit3"),
     label: `3항 피팅 (…${f3.C < 0 ? "−" : "+"} ${fmt(Math.abs(f3.C))}·sin⁴φ)` });
-  legendItems.push({ type: "dash", color: c.css("--c-ref"), label: "Snodgrass & Ulrich 1990 (문헌값)" });
+  legendItems.push({ type: "dash", color: c.css("--c-ref"), label: "Snodgrass & Ulrich 1990 (문헌값, 항성 기준)" });
   legendHTML($("rotLegend"), legendItems);
   // nearest-point hover
   const tt = makeTooltip(box);
@@ -255,7 +255,7 @@ function renderRotation() {
     if (!best) return tt.hide();
     const t = best.t;
     tt.show(best.x, best.y, `NOAA ${t.ar}${t.onScreen ? " · 화면 AR" : ""}`, [
-      ["위도", fmt(t.meanLat, 1) + "°"], ["Ω (항성)", fmt(t.omega, 3) + " °/일"],
+      ["위도", fmt(t.meanLat, 1) + "°"], [`Ω (${t.coord === "hgs" ? "삭망" : "항성"})`, fmt(t.omega, 3) + " °/일"],
       ["회전주기", fmt(360 / t.omega, 1) + " 일"], ["관측", `${t.nDays}일 / ${fmt(t.span, 0)}일간`],
       ["피팅 RMS", fmt(t.rms, 2) + "°"],
     ]);
@@ -280,7 +280,7 @@ function renderTrackSel() {
 function renderTrack() {
   const { tracks } = M, ar = +$("trackSel").value;
   $("trackDesc").textContent = state.coord === "hgs"
-    ? "Stonyhurst(hgs) 경도의 시간 변화 기울기(삭망 회전율)에 지구 공전분(+0.986°/일)을 더해 항성 Ω를 구합니다."
+    ? "Stonyhurst(hgs) 경도의 시간 변화 기울기를 보정 없이 그대로 Ω로 씁니다 (지구 공전 보정 없음, 삭망 회전율)."
     : "Carrington(hgc) 경도의 시간 변화 기울기가 곧 차등회전 신호입니다 (기울기 + 14.1844 = Ω).";
   const t = tracks.find(x => x.ar === ar);
   const box1 = $("trackChart1"), box2 = $("trackChart2");
@@ -308,7 +308,9 @@ function renderTrack() {
   });
   el("text", { x: c1.X(dsMax), y: c1.Y(t.intercept + t.slope * dsMax) - 10, "text-anchor": "end",
     "font-size": 11.5, "font-weight": 600, fill: c1.css("--ink2") }, c1.svg)
-    .textContent = `기울기 ${t.slope >= 0 ? "+" : ""}${fmt(t.slope, 3)} °/일 ${isHgs ? "+ 0.986" : "+ 14.184"} → Ω = ${fmt(t.omega, 3)}`;
+    .textContent = isHgs
+      ? `기울기 ${fmt(t.slope, 3)} °/일 = Ω = ${fmt(t.omega, 3)}`
+      : `기울기 ${t.slope >= 0 ? "+" : ""}${fmt(t.slope, 3)} °/일 + 14.184 → Ω = ${fmt(t.omega, 3)}`;
   // chart 2: latitude
   const lats = t.rows.map(r => r[3]), la = Math.min(...lats), lb = Math.max(...lats), lp = Math.max(0.8, (lb - la) * 0.35);
   const c2 = baseChart(box2, { h: 200, x: [dsMin - 0.5, dsMax + 0.5], y: [la - lp, lb + lp],
