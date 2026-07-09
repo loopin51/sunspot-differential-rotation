@@ -35,6 +35,7 @@ const state = {
   selected: new Set(ALL_ARS), // active regions to process (default: all)
   coord: "hgs", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
   retTol: 5, // hgc(Carrington 경도) 일치 허용오차, deg
+  excluded: new Map(), // ar -> Set(date) 사용자가 선형 피팅에서 제외한 일별 점
   mapIdx: -1, playing: null,
 };
 
@@ -46,7 +47,7 @@ let M = null;
 function recompute() {
   let daily = DATA.rows.filter(r =>
     r[1] >= state.dateStart && r[1] <= state.dateEnd && state.selected.has(r[0]));
-  const tracks = daily.length ? fitTracks(daily, SCREEN, state.coord) : [];
+  const tracks = daily.length ? fitTracks(daily, SCREEN, state.coord, state.excluded) : [];
   const prof = fitProfile(tracks, { rmsMax: effRms(), minDays: state.minDays });
   const goodSet = new Set(prof.good.map(t => t.ar));
   const dates = [...new Set(daily.map(r => r[1]))].sort();
@@ -58,7 +59,7 @@ function recompute() {
 function goodARsInWindow() {
   const daily = DATA.rows.filter(r => r[1] >= state.dateStart && r[1] <= state.dateEnd);
   if (!daily.length) return new Set();
-  const prof = fitProfile(fitTracks(daily, SCREEN, state.coord), { rmsMax: effRms(), minDays: state.minDays });
+  const prof = fitProfile(fitTracks(daily, SCREEN, state.coord, state.excluded), { rmsMax: effRms(), minDays: state.minDays });
   return new Set(prof.good.map(t => t.ar));
 }
 
@@ -263,6 +264,18 @@ function renderRotation() {
   c.svg.addEventListener("pointerleave", () => tt.hide());
 }
 
+// ---------- fit-point selection (per-AR, affects that AR's linear fit) ----------
+function toggleFitPoint(ar, date) {
+  if (!state.excluded.has(ar)) state.excluded.set(ar, new Set());
+  const s = state.excluded.get(ar);
+  if (s.has(date)) s.delete(date); else s.add(date);
+  if (!s.size) state.excluded.delete(ar);
+  rerenderAll();
+}
+function resetFitPoints(ar) {
+  if (state.excluded.delete(ar)) rerenderAll();
+}
+
 // ---------- track charts ----------
 function renderTrackSel() {
   const sel = $("trackSel"), { tracks, goodSet } = M;
@@ -285,8 +298,9 @@ function renderTrack() {
   const t = tracks.find(x => x.ar === ar);
   const box1 = $("trackChart1"), box2 = $("trackChart2");
   if (!t) { box1.textContent = ""; box2.textContent = ""; $("trackStats").textContent = "데이터 없음"; return; }
+  const fitNote = t.nFit < t.nDays ? ` · 피팅에 ${t.nFit}/${t.nDays}개 점 사용` : "";
   $("trackStats").textContent =
-    `평균 위도 ${fmt(t.meanLat, 1)}° · Ω = ${fmt(t.omega, 3)} °/일 · 회전주기 ${fmt(360 / t.omega, 1)}일 · RMS ${fmt(t.rms, 2)}°`;
+    `평균 위도 ${fmt(t.meanLat, 1)}° · Ω = ${fmt(t.omega, 3)} °/일 · 회전주기 ${fmt(360 / t.omega, 1)}일 · RMS ${fmt(t.rms, 2)}°${fitNote}`;
   const days = t.days, dsMin = Math.min(...days), dsMax = Math.max(...days);
   const dateOf = d => new Date(t.t0 + d * 86400e3).toISOString().slice(5, 10);
   const xt = niceTicks(dsMin, dsMax, 7).filter(v => v >= dsMin - 1e-9 && v <= dsMax + 1e-9);
@@ -300,11 +314,21 @@ function renderTrack() {
   el("path", { d: `M${c1.X(dsMin)} ${c1.Y(t.intercept + t.slope * dsMin)} L${c1.X(dsMax)} ${c1.Y(t.intercept + t.slope * dsMax)}`,
     stroke: c1.css("--c-fit2"), "stroke-width": 2, fill: "none" }, c1.svg);
   const hp1 = [];
+  const color1 = t.onScreen ? c1.css("--c-screen") : c1.css("--c-other");
   days.forEach((d, i) => {
-    el("circle", { cx: c1.X(d), cy: c1.Y(lc[i]), r: 4.5,
-      fill: t.onScreen ? c1.css("--c-screen") : c1.css("--c-other"),
-      stroke: c1.css("--surface"), "stroke-width": 2 }, c1.svg);
+    const included = t.fitIdx.has(i);
+    el("circle", included
+      ? { cx: c1.X(d), cy: c1.Y(lc[i]), r: 4.5, fill: color1,
+          stroke: c1.css("--surface"), "stroke-width": 2,
+          style: "cursor:pointer", "data-i": i, class: "trkpt" }
+      : { cx: c1.X(d), cy: c1.Y(lc[i]), r: 5.5, fill: "none",
+          stroke: color1, "stroke-width": 2, "stroke-dasharray": "2 2", opacity: 0.6,
+          style: "cursor:pointer", "data-i": i, class: "trkpt" }, c1.svg);
     hp1.push({ x: c1.X(d), y: c1.Y(lc[i]), i });
+  });
+  c1.svg.addEventListener("click", ev => {
+    const c = ev.target.closest("circle.trkpt"); if (!c) return;
+    toggleFitPoint(t.ar, t.rows[+c.dataset.i][1]);
   });
   el("text", { x: c1.X(dsMax), y: c1.Y(t.intercept + t.slope * dsMax) - 10, "text-anchor": "end",
     "font-size": 11.5, "font-weight": 600, fill: c1.css("--ink2") }, c1.svg)
@@ -323,10 +347,12 @@ function renderTrack() {
   days.forEach((d, i) => el("circle", { cx: c2.X(d), cy: c2.Y(lats[i]), r: 4,
     fill: t.onScreen ? c2.css("--c-screen") : c2.css("--c-other"),
     stroke: c2.css("--surface"), "stroke-width": 2 }, c2.svg));
-  legendHTML($("trackLegend"), [
-    { type: "dot", color: t.onScreen ? c1.css("--c-screen") : c1.css("--c-other"), label: `NOAA ${t.ar} 일별 위치(중앙값)` },
+  const trackLegendItems = [
+    { type: "dot", color: color1, label: `NOAA ${t.ar} 일별 위치(중앙값)` },
     { type: "ln", color: c1.css("--c-fit2"), label: "선형 피팅 (경도 표류)" },
-  ]);
+  ];
+  if (t.nFit < t.nDays) trackLegendItems.push({ type: "dot", color: color1, label: "빈 점 = 피팅에서 제외됨 (클릭해서 되돌리기)" });
+  legendHTML($("trackLegend"), trackLegendItems);
   // hover for chart1
   const tt = makeTooltip(box1);
   c1.svg.addEventListener("pointermove", ev => {
@@ -615,6 +641,7 @@ document.querySelectorAll("[data-arpreset]").forEach(b =>
   b.addEventListener("click", () => applyArPreset(b.dataset.arpreset)));
 document.addEventListener("click", () => { if (!$("arPop").hidden) toggleArPop(false); });
 $("trackSel").addEventListener("change", renderTrack);
+$("trackResetBtn").addEventListener("click", () => resetFitPoints(+$("trackSel").value));
 $("mapDate").addEventListener("input", () => { state.mapIdx = +$("mapDate").value; renderMap(); });
 $("mapPlay").addEventListener("click", () => {
   if (state.playing) { clearInterval(state.playing); state.playing = null; $("mapPlay").textContent = "▶ 재생"; return; }

@@ -49,7 +49,10 @@ function linfit(x, y) { // least squares y = a + b x
 // coord = "hgs": fit the Stonyhurst (hgs_x) longitude drift directly; Omega = slope.
 //                No Earth-orbital correction is applied, so this is the raw
 //                synodic (Earth-observed) drift rate, not a sidereal rate.
-function fitTracks(daily, screenSet, coord = "hgc") {
+// excluded: optional Map<ar, Set<dateString>> of daily points the user has
+//           manually excluded from that AR's linear fit (point stays visible
+//           in the track chart, it just doesn't contribute to slope/Ω).
+function fitTracks(daily, screenSet, coord = "hgc", excluded = null) {
   const byAR = new Map();
   for (const r of daily) {
     if (!byAR.has(r[0])) byAR.set(r[0], []);
@@ -66,13 +69,21 @@ function fitTracks(daily, screenSet, coord = "hgc") {
     // Carrington longitude (r[4]) needs 360° unwrapping; Stonyhurst longitude
     // (r[2]) stays within one disk passage (|lon|<=60), so no unwrap.
     const lon = coord === "hgs" ? rows.map(r => r[2]) : unwrapDeg(rows.map(r => r[4]));
-    const f = linfit(days, lon);
+    // user-selected subset of points to actually fit (default: all of them)
+    const exSet = excluded ? excluded.get(ar) : null;
+    let fitIdx = rows.map((r, i) => i);
+    if (exSet && exSet.size) {
+      const kept = fitIdx.filter(i => !exSet.has(rows[i][1]));
+      if (kept.length >= 2) fitIdx = kept; // need >=2 points for a line
+    }
+    const f = linfit(fitIdx.map(i => days[i]), fitIdx.map(i => lon[i]));
     const omega = coord === "hgs" ? f.b : OMEGA_C + f.b;
     const meanLat = rows.reduce((s, r) => s + r[3], 0) / rows.length;
     tracks.push({
       ar, meanLat, nDays: rows.length, span, coord,
       slope: f.b, intercept: f.a, omega, rms: f.rms,
       onScreen: screenSet.has(ar), rows, days, lonSeries: lon, t0,
+      fitIdx: new Set(fitIdx), nFit: fitIdx.length,
     });
   }
   return tracks.sort((a, b) => a.meanLat - b.meanLat);
