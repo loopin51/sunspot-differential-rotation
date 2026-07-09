@@ -457,6 +457,7 @@ function tableData() {
       ar: t.ar, meanLat: t.meanLat, omega: t.omega, period: 360 / t.omega, slope: t.slope,
       nDays: t.nDays, span: t.span, rms: t.rms,
       st: M.goodSet.has(t.ar) ? "포함" : "제외", _scr: t.onScreen, _cut: !M.goodSet.has(t.ar),
+      _fitSel: t.nFit < t.nDays, _nFit: t.nFit,
     }));
     return { cols, rows, fmts: { meanLat: 1, omega: 3, period: 1, slope: 3, span: 0, rms: 2 } };
   }
@@ -503,10 +504,17 @@ function renderTable() {
       const td = document.createElement("td");
       let v = r[k];
       if (typeof v === "number" && fmts[k] != null) v = v.toFixed(fmts[k]);
-      if (k === "ar" && r._scr) {
+      if (k === "ar" && (r._scr || r._fitSel)) {
         td.textContent = v + " ";
-        const s = document.createElement("span"); s.className = "tag scr"; s.textContent = "화면";
-        td.appendChild(s);
+        if (r._scr) {
+          const s = document.createElement("span"); s.className = "tag scr"; s.textContent = "화면";
+          td.appendChild(s); td.append(" ");
+        }
+        if (r._fitSel) {
+          const s = document.createElement("span"); s.className = "tag fit"; s.textContent = "점선택";
+          s.title = `사용자가 피팅 점을 선택함 — ${r._nFit}/${r.nDays}개 점으로 계산된 값 (AR 추적 탭에서 확인/초기화)`;
+          td.appendChild(s);
+        }
       } else if (k === "date" && r._ret) {
         td.textContent = v + " ";
         const s = document.createElement("span"); s.className = "tag ret"; s.textContent = "일치";
