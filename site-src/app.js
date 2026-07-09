@@ -31,7 +31,7 @@ function matchedScreenARs(carrLon, tolDeg) {
 
 const state = {
   dateStart: DATA_MIN, dateEnd: DATA_MAX,
-  rmsMax: 1.0, rmsOn: true, minDays: 5,
+  rmsMax: 1.0, rmsOn: false, minDays: 5,
   selected: new Set(ALL_ARS), // active regions to process (default: all)
   coord: "hgs", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
   retTol: 5, // hgc(Carrington 경도) 일치 허용오차, deg
@@ -644,6 +644,8 @@ let rsz = null;
 window.addEventListener("resize", () => { clearTimeout(rsz); rsz = setTimeout(renderActive, 180); });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { renderTiles(); renderActive(); });
 
+state.rmsOn = $("fRmsOn").checked;
+$("fRms").closest(".rmsf").classList.toggle("off", !state.rmsOn);
 initDateFilter();
 renderArPanel();
 rerenderAll();
