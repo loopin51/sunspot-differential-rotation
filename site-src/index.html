@@ -176,6 +176,11 @@ footer a{color:var(--ink2)}
     <option value="hgc">hgc (Carrington)</option>
     <option value="hgs" selected>hgs (Stonyhurst)</option>
   </select></label>
+  <label class="f">데이터 소스 <select id="fSrc">
+    <option value="both" selected>둘 다 (HMI + NOAA)</option>
+    <option value="hmi">HMI SHARP만</option>
+    <option value="noaa">NOAA SWPC Observer만</option>
+  </select></label>
   <span style="color:var(--baseline)">|</span>
   <span style="font-weight:600;font-size:13px">기간</span>
   <label class="f"><input type="date" id="fStart"> ~ <input type="date" id="fEnd"></label>
@@ -262,8 +267,10 @@ footer a{color:var(--ink2)}
   <summary>방법론 — 어떻게 계산했나</summary>
   <div class="inner">
     <p><b>1. 데이터.</b> NASA HEK(Heliophysics Event Knowledgebase)에서 활성영역(AR) 검출을 수집합니다
-    — Helioviewer 화면 마커의 원천 데이터와 동일합니다 (HMI SHARP + NOAA SWPC Observer).
-    림 투영오차를 피하려고 |Stonyhurst 경도| ≤ 60° 검출만 쓰고, NOAA 번호·날짜별 <b>중앙값</b>으로 일별 위치를 만듭니다.</p>
+    — Helioviewer 화면 마커의 원천 데이터와 동일합니다. 검출 소스는 <b>HMI SHARP</b>(SDO/HMI 위성 자동 파이프라인)와
+    <b>NOAA SWPC Observer</b>(사람이 분석한 보고) 둘이며, 상단 <b>데이터 소스</b> 선택으로 둘 다·HMI만·NOAA만 중 고를 수 있습니다.
+    림 투영오차를 피하려고 |Stonyhurst 경도| ≤ 60° 검출만 쓰고, 선택한 소스에 대해 NOAA 번호·날짜별 <b>중앙값</b>으로 일별 위치를 만듭니다
+    (소스를 바꾸면 중앙값이 다시 계산되어 각속도도 조금씩 달라집니다).</p>
     <p><b>2. 회전 각속도.</b> Carrington 좌표계는 태양과 함께 항성 기준 Ω<sub>C</sub> = 14.1844°/일로 회전합니다.
     위도 φ의 흑점이 국소 회전율 Ω(φ)로 돌면 Carrington 경도가 그 차이만큼 표류합니다:</p>
     <div class="formula">dL<sub>C</sub>/dt = Ω(φ) − Ω<sub>C</sub>&nbsp;&nbsp;⇒&nbsp;&nbsp;Ω(φ) = 14.1844 + (L<sub>C</sub>(t) 선형피팅 기울기)</div>

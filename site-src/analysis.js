@@ -7,12 +7,17 @@ function median(a) {
 }
 
 // raw events [{ar, time(ms), stonyLon, lat, carrLon}] -> daily rows [[ar,date,stonyLon,lat,carrLon,n]]
-function aggregateDaily(events) {
+// detections [{ar, date("YYYY-MM-DD"), stonyLon, lat, carrLon, src}] -> daily
+// rows [[ar,date,stonyLon,lat,carrLon,n]] via per-(ar,date) median.
+// srcSet: optional Set of allowed src indices (null/undefined = keep all sources).
+// e.date may be absent (legacy live events carry e.time in ms) — fall back to it.
+function aggregateDaily(events, srcSet) {
   const groups = new Map();
   for (const e of events) {
     if (e.ar == null || !isFinite(e.lat) || !isFinite(e.carrLon)) continue;
     if (Math.abs(e.stonyLon) > 60) continue; // limb cut
-    const date = new Date(e.time).toISOString().slice(0, 10);
+    if (srcSet && !srcSet.has(e.src)) continue; // source filter
+    const date = e.date != null ? e.date : new Date(e.time).toISOString().slice(0, 10);
     const k = e.ar + "|" + date;
     if (!groups.has(k)) groups.set(k, { ar: e.ar, date, s: [], l: [], c: [] });
     const g = groups.get(k);

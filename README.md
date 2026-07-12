@@ -34,6 +34,7 @@ http://localhost:8899).
 | `scripts/fetch_hek.py` | HEK 수집 (주 단위 청크 + 재시도) |
 | `scripts/analyze.py` | 회전율 계산 + 프로파일 피팅 + seaborn 그래프 |
 | `scripts/build_xlsx.py` | 엑셀 워크북 생성 |
+| `scripts/gen_embedded.py` | 대시보드용 임베드 데이터 생성 (소스 라벨 포함 원본 검출) |
 | `site/` | 대시보드 소스 (index.html 템플릿, app.js, analysis.js, build.py) |
 
 ## 방법 (요약)

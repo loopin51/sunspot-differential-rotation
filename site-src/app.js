@@ -2,21 +2,38 @@ const DATA = JSON.parse(document.getElementById("embedded-data").textContent);
 const SCREEN = new Set(DATA.screen);
 const SNOD = phi => 14.71 - 2.39 * Math.sin(phi) ** 2 - 1.78 * Math.sin(phi) ** 4;
 const $ = id => document.getElementById(id);
-// full extent of the embedded dataset (the selectable range)
-const DATA_MIN = DATA.rows.reduce((m, r) => r[1] < m ? r[1] : m, DATA.rows[0][1]);
-const DATA_MAX = DATA.rows.reduce((m, r) => r[1] > m ? r[1] : m, DATA.rows[0][1]);
-// every NOAA number present in the dataset (the selectable active regions)
-const ALL_ARS = [...new Set(DATA.rows.map(r => r[0]))].sort((a, b) => a - b);
+
+// ---------- raw detections + source selection ----------
+// Each detection carries its source (src index into DATA.srcNames). The daily
+// median aggregation happens in-browser AFTER the source filter, so switching
+// sources genuinely re-derives every daily position (median over the selected
+// sources only), not just a display toggle.
+const SRC_NAMES = DATA.srcNames; // ["HMI SHARP", "NOAA SWPC Observer"]
+const DET = DATA.det.map(d => ({ ar: d[0], date: d[1], stonyLon: d[2], lat: d[3], carrLon: d[4], src: d[5] }));
+// srcMode -> Set of allowed src indices (null = all sources)
+const SRC_SETS = { both: null, hmi: new Set([0]), noaa: new Set([1]) };
+const _dailyCache = new Map(); // srcMode -> daily rows (aggregation only depends on source)
+function dailyForMode(mode) {
+  if (!_dailyCache.has(mode)) _dailyCache.set(mode, aggregateDaily(DET, SRC_SETS[mode]));
+  return _dailyCache.get(mode);
+}
+// full-data daily (both sources) — drives the stable, source-independent UI
+// bounds: selectable date range, AR list, and the hgc reference longitudes.
+const ALL_DAILY = dailyForMode("both");
+const DATA_MIN = ALL_DAILY.reduce((m, r) => r[1] < m ? r[1] : m, ALL_DAILY[0][1]);
+const DATA_MAX = ALL_DAILY.reduce((m, r) => r[1] > m ? r[1] : m, ALL_DAILY[0][1]);
+const ALL_ARS = [...new Set(ALL_DAILY.map(r => r[0]))].sort((a, b) => a - b);
 
 // ---------- hgc (Carrington 경도) 일치 표시 ----------
 // 화면 AR(Helioviewer 11개) 각각이 2026-05-29 무렵 가졌던 hgc(Carrington 경도) 값을 기준으로,
 // 데이터 전체에서 그 값과 ±허용오차 안에 드는 모든 행(같은 AR·다른 AR, 어떤 날짜든 무관)을 표시.
-// 순수하게 hgc 컬럼 값만 비교 — 날짜·자전주기는 고려하지 않음.
+// 순수하게 hgc 컬럼 값만 비교 — 날짜·자전주기는 고려하지 않음. 기준값은 소스 선택과
+// 무관하게 안정적으로 두기 위해 전체(both) 집계에서 계산.
 const REF_DATE = "2026-05-29";
 const circDist = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
 const SCREEN_REF_LON = new Map(); // ar -> hgc(Carrington 경도) near 2026-05-29
 for (const ar of SCREEN) {
-  const rows = DATA.rows.filter(r => r[0] === ar);
+  const rows = ALL_DAILY.filter(r => r[0] === ar);
   if (!rows.length) continue;
   const best = rows.reduce((a, b) =>
     Math.abs(Date.parse(b[1]) - Date.parse(REF_DATE)) < Math.abs(Date.parse(a[1]) - Date.parse(REF_DATE)) ? b : a);
@@ -34,6 +51,7 @@ const state = {
   rmsMax: 1.0, rmsOn: false, minDays: 5,
   selected: new Set(ALL_ARS), // active regions to process (default: all)
   coord: "hgs", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
+  srcMode: "both", // 데이터 소스: "both" | "hmi" | "noaa"
   retTol: 5, // hgc(Carrington 경도) 일치 허용오차, deg
   excluded: new Map(), // ar -> Set(date) 사용자가 선형 피팅에서 제외한 일별 점
   mapIdx: -1, playing: null,
@@ -45,7 +63,8 @@ const effRms = () => (state.rmsOn ? state.rmsMax : Infinity);
 // ---------- derived model ----------
 let M = null;
 function recompute() {
-  let daily = DATA.rows.filter(r =>
+  const src = dailyForMode(state.srcMode); // daily rows aggregated over selected source(s)
+  let daily = src.filter(r =>
     r[1] >= state.dateStart && r[1] <= state.dateEnd && state.selected.has(r[0]));
   const tracks = daily.length ? fitTracks(daily, SCREEN, state.coord, state.excluded) : [];
   const prof = fitProfile(tracks, { rmsMax: effRms(), minDays: state.minDays });
@@ -57,7 +76,7 @@ function recompute() {
 // active regions that pass the quality filter across the current date window,
 // ignoring the current selection (used by the "필터 통과" preset)
 function goodARsInWindow() {
-  const daily = DATA.rows.filter(r => r[1] >= state.dateStart && r[1] <= state.dateEnd);
+  const daily = dailyForMode(state.srcMode).filter(r => r[1] >= state.dateStart && r[1] <= state.dateEnd);
   if (!daily.length) return new Set();
   const prof = fitProfile(fitTracks(daily, SCREEN, state.coord, state.excluded), { rmsMax: effRms(), minDays: state.minDays });
   return new Set(prof.good.map(t => t.ar));
@@ -627,7 +646,13 @@ function renderActive() {
   else if (t === "map") { renderMapControls(); renderMap(); }
   else if (t === "table") { renderTblAr(); renderTable(); }
 }
-function rerenderAll() { recompute(); renderTiles(); renderActive(); }
+const SRC_LABEL = { both: "HMI SHARP + NOAA SWPC Observer", hmi: "HMI SHARP", noaa: "NOAA SWPC Observer" };
+function updateSrcLine() {
+  const w = DATA.window;
+  $("srcLine").textContent =
+    `데이터: NASA HEK (${SRC_LABEL[state.srcMode]}) · 기간 ${w[0]} ~ ${w[1]} (2026-05-29 ±2개월)`;
+}
+function rerenderAll() { recompute(); updateSrcLine(); renderTiles(); renderActive(); }
 
 $("tabs").addEventListener("click", ev => {
   const b = ev.target.closest("button"); if (!b) return;
@@ -643,6 +668,14 @@ $("fRmsOn").addEventListener("change", () => {
 });
 $("fDays").addEventListener("input", () => { state.minDays = +$("fDays").value; $("fDaysV").textContent = state.minDays; rerenderAll(); });
 $("fCoord").addEventListener("change", () => { state.coord = $("fCoord").value; rerenderAll(); });
+$("fSrc").addEventListener("change", () => {
+  state.srcMode = $("fSrc").value;
+  // a manual fit-point selection may reference dates that no longer exist under
+  // the new source — harmless (fitTracks ignores absent dates), but clear it so
+  // the exclusion set doesn't silently apply to a different daily series.
+  state.excluded.clear();
+  rerenderAll();
+});
 $("arSelBtn").addEventListener("click", ev => { ev.stopPropagation(); toggleArPop(); });
 $("arPop").addEventListener("click", ev => ev.stopPropagation());
 document.querySelectorAll("[data-arpreset]").forEach(b =>
