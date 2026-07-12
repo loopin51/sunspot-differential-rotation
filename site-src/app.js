@@ -35,7 +35,7 @@ function noaaMapRows() {
   const g = new Map();
   for (const e of DET) {
     if (e.src !== NOAA_SRC) continue;
-    if (!isFinite(e.lat) || !isFinite(e.carrLon) || Math.abs(e.stonyLon) > 60) continue;
+    if (!isFinite(e.lat) || !isFinite(e.carrLon) || Math.abs(e.stonyLon) > 90) continue;
     const k = e.ar + "|" + e.date;
     const prev = g.get(k);
     if (!prev || e.ts < prev.ts) g.set(k, e); // earliest report of the day (~00:00)

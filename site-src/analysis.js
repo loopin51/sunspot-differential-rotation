@@ -15,7 +15,7 @@ function aggregateDaily(events, srcSet) {
   const groups = new Map();
   for (const e of events) {
     if (e.ar == null || !isFinite(e.lat) || !isFinite(e.carrLon)) continue;
-    if (Math.abs(e.stonyLon) > 60) continue; // limb cut
+    if (Math.abs(e.stonyLon) > 90) continue; // visible-disk only (no near-limb quality cut)
     if (srcSet && !srcSet.has(e.src)) continue; // source filter
     const date = e.date != null ? e.date : new Date(e.time).toISOString().slice(0, 10);
     const k = e.ar + "|" + date;
@@ -36,7 +36,7 @@ function rawRows(events, srcSet) {
   const out = [];
   for (const e of events) {
     if (e.ar == null || !isFinite(e.lat) || !isFinite(e.carrLon)) continue;
-    if (Math.abs(e.stonyLon) > 60) continue; // limb cut
+    if (Math.abs(e.stonyLon) > 90) continue; // visible-disk only (no near-limb quality cut)
     if (srcSet && !srcSet.has(e.src)) continue; // source filter
     out.push([e.ar, e.ts, e.stonyLon, e.lat, e.carrLon, 1, e.src]);
   }
@@ -92,7 +92,7 @@ function fitTracks(daily, screenSet, coord = "hgc", excluded = null) {
     if (span < 2) continue;
     const nDays = new Set(rows.map(r => r[1].slice(0, 10))).size;
     // Carrington longitude (r[4]) needs 360° unwrapping; Stonyhurst longitude
-    // (r[2]) stays within one disk passage (|lon|<=60), so no unwrap.
+    // (r[2]) stays within one disk passage (|lon|<=90), so no unwrap.
     const lon = coord === "hgs" ? rows.map(r => r[2]) : unwrapDeg(rows.map(r => r[4]));
     // user-selected subset of points to actually fit (default: all of them)
     const exSet = excluded ? excluded.get(ar) : null;

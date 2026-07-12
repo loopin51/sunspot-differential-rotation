@@ -31,8 +31,10 @@ df["ar_noaanum"] = df["ar_noaanum"].astype(int)
 # only known sources
 df = df[df["frm_name"].isin(SRC_NAMES)].copy()
 
-# limb cut (source-independent) -> keeps the embed smaller, matches analyze.py
-df = df[df["stony_lon"].abs() <= 60].copy()
+# No near-limb quality cut (user turned it off). Keep only the physically
+# visible disk (|Stonyhurst lon| <= 90°); the handful of >90° points are on the
+# far side of the Sun and can't be placed on a disk map.
+df = df[df["stony_lon"].abs() <= 90].copy()
 
 # minute-resolution timestamp (seconds are all :00); day = ts[:10]
 df["ts"] = df["t"].dt.strftime("%Y-%m-%dT%H:%M")
