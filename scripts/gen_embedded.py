@@ -34,16 +34,17 @@ df = df[df["frm_name"].isin(SRC_NAMES)].copy()
 # limb cut (source-independent) -> keeps the embed smaller, matches analyze.py
 df = df[df["stony_lon"].abs() <= 60].copy()
 
-df["date"] = df["t"].dt.floor("D").dt.strftime("%Y-%m-%d")
+# minute-resolution timestamp (seconds are all :00); day = ts[:10]
+df["ts"] = df["t"].dt.strftime("%Y-%m-%dT%H:%M")
 
 det = []
 for _, r in df.iterrows():
     det.append([
-        int(r["ar_noaanum"]), r["date"],
+        int(r["ar_noaanum"]), r["ts"],
         round(float(r["stony_lon"]), 3), round(float(r["lat"]), 3),
         round(float(r["carr_lon"]), 3), SRC_IDX[r["frm_name"]],
     ])
-# stable order: ar, date, src
+# stable order: ar, ts, src
 det.sort(key=lambda x: (x[0], x[1], x[5]))
 
 out = {
@@ -51,7 +52,7 @@ out = {
     "window": ["2026-03-29", "2026-07-29"],
     "screen": SCREEN,
     "srcNames": SRC_NAMES,
-    "detCols": ["ar", "date", "stonyLon", "lat", "carrLon", "src"],
+    "detCols": ["ar", "ts", "stonyLon", "lat", "carrLon", "src"],
     "det": det,
 }
 with open("/home/claude/solar/embedded_data.json", "w") as f:
@@ -66,7 +67,8 @@ def median(a):
 
 groups = {}
 for d in det:
-    ar, date, s, l, c, src = d
+    ar, ts, s, l, c, src = d
+    date = ts[:10]
     groups.setdefault((ar, date), []).append((s, l, c))
 daily = []
 for (ar, date), vs in groups.items():

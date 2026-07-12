@@ -28,6 +28,21 @@ function aggregateDaily(events, srcSet) {
     .sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1));
 }
 
+// Raw (un-aggregated) rows: each detection becomes its own row, keeping its full
+// minute-resolution timestamp as the time key so intra-day points sit at their
+// true fractional day. Same [ar, timeKey, stonyLon, lat, carrLon, n] shape as
+// aggregateDaily (n=1). Used when the user picks "원본값" instead of daily median.
+function rawRows(events, srcSet) {
+  const out = [];
+  for (const e of events) {
+    if (e.ar == null || !isFinite(e.lat) || !isFinite(e.carrLon)) continue;
+    if (Math.abs(e.stonyLon) > 60) continue; // limb cut
+    if (srcSet && !srcSet.has(e.src)) continue; // source filter
+    out.push([e.ar, e.ts, e.stonyLon, e.lat, e.carrLon, 1, e.src]);
+  }
+  return out.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1));
+}
+
 function unwrapDeg(lons) {
   const out = [lons[0]];
   for (let i = 1; i < lons.length; i++) {
@@ -54,9 +69,13 @@ function linfit(x, y) { // least squares y = a + b x
 // coord = "hgs": fit the Stonyhurst (hgs_x) longitude drift directly; Omega = slope.
 //                No Earth-orbital correction is applied, so this is the raw
 //                synodic (Earth-observed) drift rate, not a sidereal rate.
-// excluded: optional Map<ar, Set<dateString>> of daily points the user has
-//           manually excluded from that AR's linear fit (point stays visible
-//           in the track chart, it just doesn't contribute to slope/Ω).
+// excluded: optional Map<ar, Set<timeKey>> of points the user has manually
+//           excluded from that AR's linear fit (point stays visible in the
+//           track chart, it just doesn't contribute to slope/Ω).
+// rows carry a time key at index 1 — a day string ("YYYY-MM-DD") in median mode
+// or a minute timestamp ("YYYY-MM-DDTHH:MM") in raw mode; either parses to a
+// fractional day. nDays counts DISTINCT calendar days (so the "최소 관측일"
+// quality cut means days in both modes); nPts counts the actual fitted points.
 function fitTracks(daily, screenSet, coord = "hgc", excluded = null) {
   const byAR = new Map();
   for (const r of daily) {
@@ -71,6 +90,7 @@ function fitTracks(daily, screenSet, coord = "hgc", excluded = null) {
     const days = rows.map(r => (Date.parse(r[1]) - t0) / 86400e3);
     const span = days[days.length - 1] - days[0];
     if (span < 2) continue;
+    const nDays = new Set(rows.map(r => r[1].slice(0, 10))).size;
     // Carrington longitude (r[4]) needs 360° unwrapping; Stonyhurst longitude
     // (r[2]) stays within one disk passage (|lon|<=60), so no unwrap.
     const lon = coord === "hgs" ? rows.map(r => r[2]) : unwrapDeg(rows.map(r => r[4]));
@@ -85,7 +105,7 @@ function fitTracks(daily, screenSet, coord = "hgc", excluded = null) {
     const omega = coord === "hgs" ? f.b : OMEGA_C + f.b;
     const meanLat = rows.reduce((s, r) => s + r[3], 0) / rows.length;
     tracks.push({
-      ar, meanLat, nDays: rows.length, span, coord,
+      ar, meanLat, nDays, nPts: rows.length, span, coord,
       slope: f.b, intercept: f.a, omega, rms: f.rms,
       onScreen: screenSet.has(ar), rows, days, lonSeries: lon, t0,
       fitIdx: new Set(fitIdx), nFit: fitIdx.length,

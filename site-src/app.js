@@ -9,17 +9,25 @@ const $ = id => document.getElementById(id);
 // sources genuinely re-derives every daily position (median over the selected
 // sources only), not just a display toggle.
 const SRC_NAMES = DATA.srcNames; // ["HMI SHARP", "NOAA SWPC Observer"]
-const DET = DATA.det.map(d => ({ ar: d[0], date: d[1], stonyLon: d[2], lat: d[3], carrLon: d[4], src: d[5] }));
+// each detection: ts = minute timestamp, date = calendar day (for day grouping)
+const DET = DATA.det.map(d => ({ ar: d[0], ts: d[1], date: d[1].slice(0, 10), stonyLon: d[2], lat: d[3], carrLon: d[4], src: d[5] }));
 // srcMode -> Set of allowed src indices (null = all sources)
 const SRC_SETS = { both: null, hmi: new Set([0]), noaa: new Set([1]) };
-const _dailyCache = new Map(); // srcMode -> daily rows (aggregation only depends on source)
-function dailyForMode(mode) {
-  if (!_dailyCache.has(mode)) _dailyCache.set(mode, aggregateDaily(DET, SRC_SETS[mode]));
-  return _dailyCache.get(mode);
+// rows fed to the fit depend on aggregation (raw vs daily-median) AND source.
+// "raw"    -> every detection is its own point (true intra-day timestamps)
+// "median" -> per-(AR,day) median (one point per day)
+const _rowsCache = new Map(); // "agg|src" -> rows
+function rowsForModel(agg, srcMode) {
+  const key = agg + "|" + srcMode;
+  if (!_rowsCache.has(key)) {
+    const set = SRC_SETS[srcMode];
+    _rowsCache.set(key, agg === "raw" ? rawRows(DET, set) : aggregateDaily(DET, set));
+  }
+  return _rowsCache.get(key);
 }
-// full-data daily (both sources) — drives the stable, source-independent UI
-// bounds: selectable date range, AR list, and the hgc reference longitudes.
-const ALL_DAILY = dailyForMode("both");
+// full-data daily median (both sources) — drives the stable, source/agg-independent
+// UI bounds: selectable date range, AR list, and the hgc reference longitudes.
+const ALL_DAILY = aggregateDaily(DET, null);
 const DATA_MIN = ALL_DAILY.reduce((m, r) => r[1] < m ? r[1] : m, ALL_DAILY[0][1]);
 const DATA_MAX = ALL_DAILY.reduce((m, r) => r[1] > m ? r[1] : m, ALL_DAILY[0][1]);
 const ALL_ARS = [...new Set(ALL_DAILY.map(r => r[0]))].sort((a, b) => a - b);
@@ -52,8 +60,9 @@ const state = {
   selected: new Set(ALL_ARS), // active regions to process (default: all)
   coord: "hgs", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
   srcMode: "both", // 데이터 소스: "both" | "hmi" | "noaa"
+  agg: "raw", // 집계: "raw"(원본 검출 전체) | "median"(일별 중앙값)
   retTol: 5, // hgc(Carrington 경도) 일치 허용오차, deg
-  excluded: new Map(), // ar -> Set(date) 사용자가 선형 피팅에서 제외한 일별 점
+  excluded: new Map(), // ar -> Set(timeKey) 사용자가 선형 피팅에서 제외한 점
   mapIdx: -1, playing: null,
 };
 
@@ -61,22 +70,29 @@ const state = {
 const effRms = () => (state.rmsOn ? state.rmsMax : Infinity);
 
 // ---------- derived model ----------
+// row time key at index 1 is a day ("YYYY-MM-DD") or a minute timestamp; the
+// date-window filter always compares the calendar-day prefix so an end-date
+// detection at e.g. 20:00 isn't dropped by a string comparison.
+const inWindow = r => { const d = r[1].slice(0, 10); return d >= state.dateStart && d <= state.dateEnd; };
 let M = null;
 function recompute() {
-  const src = dailyForMode(state.srcMode); // daily rows aggregated over selected source(s)
-  let daily = src.filter(r =>
-    r[1] >= state.dateStart && r[1] <= state.dateEnd && state.selected.has(r[0]));
+  const src = rowsForModel(state.agg, state.srcMode); // raw or daily-median rows for the source
+  let daily = src.filter(r => inWindow(r) && state.selected.has(r[0]));
   const tracks = daily.length ? fitTracks(daily, SCREEN, state.coord, state.excluded) : [];
   const prof = fitProfile(tracks, { rmsMax: effRms(), minDays: state.minDays });
   const goodSet = new Set(prof.good.map(t => t.ar));
-  const dates = [...new Set(daily.map(r => r[1]))].sort();
-  M = { daily, tracks, prof, goodSet, dates };
+  const dates = [...new Set(daily.map(r => r[1].slice(0, 10)))].sort(); // map slider steps by day
+  // The disk map is a positional snapshot: always one daily-median dot per AR
+  // (independent of the agg toggle) so raw mode doesn't scatter 6 dots/AR/day.
+  const mapDaily = rowsForModel("median", state.srcMode)
+    .filter(r => inWindow(r) && state.selected.has(r[0]));
+  M = { daily, tracks, prof, goodSet, dates, mapDaily };
 }
 
 // active regions that pass the quality filter across the current date window,
 // ignoring the current selection (used by the "필터 통과" preset)
 function goodARsInWindow() {
-  const daily = dailyForMode(state.srcMode).filter(r => r[1] >= state.dateStart && r[1] <= state.dateEnd);
+  const daily = rowsForModel(state.agg, state.srcMode).filter(inWindow);
   if (!daily.length) return new Set();
   const prof = fitProfile(fitTracks(daily, SCREEN, state.coord, state.excluded), { rmsMax: effRms(), minDays: state.minDays });
   return new Set(prof.good.map(t => t.ar));
@@ -311,13 +327,18 @@ function renderTrackSel() {
 }
 function renderTrack() {
   const { tracks } = M, ar = +$("trackSel").value;
-  $("trackDesc").textContent = state.coord === "hgs"
-    ? "Stonyhurst(hgs) 경도의 시간 변화 기울기를 보정 없이 그대로 Ω로 씁니다 (지구 공전 보정 없음, 삭망 회전율)."
-    : "Carrington(hgc) 경도의 시간 변화 기울기가 곧 차등회전 신호입니다 (기울기 + 14.1844 = Ω).";
+  const aggNote = state.agg === "raw"
+    ? "원본 검출 전체(하루 안 여러 시각 포함)를 각각 하나의 점으로 피팅합니다. "
+    : "하루치를 중앙값으로 묶은 일별 점으로 피팅합니다. ";
+  $("trackDesc").textContent = aggNote + (state.coord === "hgs"
+    ? "Stonyhurst(hgs) 경도의 시간 변화 기울기를 보정 없이 그대로 Ω로 씁니다 (삭망 회전율)."
+    : "Carrington(hgc) 경도의 시간 변화 기울기 + 14.1844 = Ω.");
   const t = tracks.find(x => x.ar === ar);
   const box1 = $("trackChart1"), box2 = $("trackChart2");
   if (!t) { box1.textContent = ""; box2.textContent = ""; $("trackStats").textContent = "데이터 없음"; return; }
-  const fitNote = t.nFit < t.nDays ? ` · 피팅에 ${t.nFit}/${t.nDays}개 점 사용` : "";
+  const ptWord = state.agg === "raw" ? "검출" : "점";
+  const fitNote = t.nFit < t.nPts ? ` · 피팅에 ${t.nFit}/${t.nPts}개 ${ptWord} 사용`
+    : (state.agg === "raw" ? ` · ${t.nPts}개 검출 (${t.nDays}일)` : "");
   $("trackStats").textContent =
     `평균 위도 ${fmt(t.meanLat, 1)}° · Ω = ${fmt(t.omega, 3)} °/일 · 회전주기 ${fmt(360 / t.omega, 1)}일 · RMS ${fmt(t.rms, 2)}°${fitNote}`;
   const days = t.days, dsMin = Math.min(...days), dsMax = Math.max(...days);
@@ -367,10 +388,10 @@ function renderTrack() {
     fill: t.onScreen ? c2.css("--c-screen") : c2.css("--c-other"),
     stroke: c2.css("--surface"), "stroke-width": 2 }, c2.svg));
   const trackLegendItems = [
-    { type: "dot", color: color1, label: `NOAA ${t.ar} 일별 위치(중앙값)` },
+    { type: "dot", color: color1, label: `NOAA ${t.ar} ${state.agg === "raw" ? "검출 위치(원본)" : "일별 위치(중앙값)"}` },
     { type: "ln", color: c1.css("--c-fit2"), label: "선형 피팅 (경도 표류)" },
   ];
-  if (t.nFit < t.nDays) trackLegendItems.push({ type: "dot", color: color1, label: "빈 점 = 피팅에서 제외됨 (클릭해서 되돌리기)" });
+  if (t.nFit < t.nPts) trackLegendItems.push({ type: "dot", color: color1, label: "빈 점 = 피팅에서 제외됨 (클릭해서 되돌리기)" });
   legendHTML($("trackLegend"), trackLegendItems);
   // hover for chart1
   const tt = makeTooltip(box1);
@@ -382,7 +403,8 @@ function renderTrack() {
     const i = best.i, r = t.rows[i];
     tt.show(best.x, best.y, r[1], [
       ["Carr. 경도", fmt(lc[i], 2) + "°"], ["Stonyhurst", fmt(r[2], 1) + "°"],
-      ["위도", fmt(r[3], 2) + "°"], ["검출 수", r[5] + "회"],
+      ["위도", fmt(r[3], 2) + "°"],
+      state.agg === "raw" ? ["소스", SRC_NAMES[r[6]] || "–"] : ["검출 수", r[5] + "회"],
     ]);
   });
   c1.svg.addEventListener("pointerleave", () => tt.hide());
@@ -401,7 +423,7 @@ function renderMapControls() {
   $("mapDateV").textContent = dates[state.mapIdx] || "–";
 }
 function renderMap() {
-  const box = $("mapChart"), { daily, dates, goodSet } = M;
+  const box = $("mapChart"), { mapDaily: daily, dates, goodSet } = M;
   const date = dates[state.mapIdx];
   $("mapDateV").textContent = date || "–";
   box.textContent = "";
@@ -476,19 +498,25 @@ function tableData() {
       ar: t.ar, meanLat: t.meanLat, omega: t.omega, period: 360 / t.omega, slope: t.slope,
       nDays: t.nDays, span: t.span, rms: t.rms,
       st: M.goodSet.has(t.ar) ? "포함" : "제외", _scr: t.onScreen, _cut: !M.goodSet.has(t.ar),
-      _fitSel: t.nFit < t.nDays, _nFit: t.nFit,
+      _fitSel: t.nFit < t.nPts, _nFit: t.nFit, _nPts: t.nPts,
     }));
     return { cols, rows, fmts: { meanLat: 1, omega: 3, period: 1, slope: 3, span: 0, rms: 2 } };
   }
   const arSel = $("tblAr").value;
-  const cols = [["ar", "NOAA"], ["date", "날짜(UTC)"], ["lat", "위도(°)"], ["stonyLon", "Stonyhurst 경도(°)"],
-    ["carrLon", "Carrington 경도(°)"], ["n", "검출 수"]];
+  const isRaw = state.agg === "raw";
+  const cols = isRaw
+    ? [["ar", "NOAA"], ["date", "시각(UTC)"], ["lat", "위도(°)"], ["stonyLon", "Stonyhurst 경도(°)"],
+       ["carrLon", "Carrington 경도(°)"], ["src", "소스"]]
+    : [["ar", "NOAA"], ["date", "날짜(UTC)"], ["lat", "위도(°)"], ["stonyLon", "Stonyhurst 경도(°)"],
+       ["carrLon", "Carrington 경도(°)"], ["n", "검출 수"]];
   const rows = M.daily
     .filter(r => arSel === "all" || r[0] === +arSel)
     .map(r => {
       const matches = matchedScreenARs(r[4], state.retTol);
-      return { ar: r[0], date: r[1], lat: r[3], stonyLon: r[2], carrLon: r[4], n: r[5],
+      const o = { ar: r[0], date: r[1], lat: r[3], stonyLon: r[2], carrLon: r[4],
         _scr: SCREEN.has(r[0]), _ret: matches.length > 0, _retArs: matches };
+      if (isRaw) o.src = SRC_NAMES[r[6]]; else o.n = r[5];
+      return o;
     });
   return { cols, rows, fmts: { lat: 2, stonyLon: 2, carrLon: 2 } };
 }
@@ -531,7 +559,7 @@ function renderTable() {
         }
         if (r._fitSel) {
           const s = document.createElement("span"); s.className = "tag fit"; s.textContent = "점선택";
-          s.title = `사용자가 피팅 점을 선택함 — ${r._nFit}/${r.nDays}개 점으로 계산된 값 (AR 추적 탭에서 확인/초기화)`;
+          s.title = `사용자가 피팅 점을 선택함 — ${r._nFit}/${r._nPts}개 점으로 계산된 값 (AR 추적 탭에서 확인/초기화)`;
           td.appendChild(s);
         }
       } else if (k === "date" && r._ret) {
@@ -673,6 +701,13 @@ $("fSrc").addEventListener("change", () => {
   // a manual fit-point selection may reference dates that no longer exist under
   // the new source — harmless (fitTracks ignores absent dates), but clear it so
   // the exclusion set doesn't silently apply to a different daily series.
+  state.excluded.clear();
+  rerenderAll();
+});
+$("fAgg").addEventListener("change", () => {
+  state.agg = $("fAgg").value;
+  // raw vs median use different point time-keys (timestamp vs day), so a manual
+  // point selection can't carry over — clear it.
   state.excluded.clear();
   rerenderAll();
 });
