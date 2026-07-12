@@ -79,7 +79,7 @@ const state = {
   rmsMax: 1.0, rmsOn: false, minDays: 5,
   selected: new Set(ALL_ARS), // active regions to process (default: all)
   coord: "hgs", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
-  srcMode: "both", // 데이터 소스: "both" | "hmi" | "noaa"
+  srcMode: "noaa", // 데이터 소스: "both" | "hmi" | "noaa"
   agg: "raw", // 집계: "raw"(원본 검출 전체) | "median"(일별 중앙값)
   retTol: 5, // hgc(Carrington 경도) 일치 허용오차, deg
   excluded: new Map(), // ar -> Set(timeKey) 사용자가 선형 피팅에서 제외한 점

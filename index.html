@@ -177,9 +177,9 @@ footer a{color:var(--ink2)}
     <option value="hgs" selected>hgs (Stonyhurst)</option>
   </select></label>
   <label class="f">데이터 소스 <select id="fSrc">
-    <option value="both" selected>둘 다 (HMI + NOAA)</option>
+    <option value="both">둘 다 (HMI + NOAA)</option>
     <option value="hmi">HMI SHARP만</option>
-    <option value="noaa">NOAA SWPC Observer만</option>
+    <option value="noaa" selected>NOAA SWPC Observer만</option>
   </select></label>
   <label class="f">집계 <select id="fAgg">
     <option value="raw" selected>원본값 (검출 전체)</option>
@@ -591,7 +591,7 @@ const state = {
   rmsMax: 1.0, rmsOn: false, minDays: 5,
   selected: new Set(ALL_ARS), // active regions to process (default: all)
   coord: "hgs", // 회전 분석 좌표계: "hgc"(Carrington) | "hgs"(Stonyhurst)
-  srcMode: "both", // 데이터 소스: "both" | "hmi" | "noaa"
+  srcMode: "noaa", // 데이터 소스: "both" | "hmi" | "noaa"
   agg: "raw", // 집계: "raw"(원본 검출 전체) | "median"(일별 중앙값)
   retTol: 5, // hgc(Carrington 경도) 일치 허용오차, deg
   excluded: new Map(), // ar -> Set(timeKey) 사용자가 선형 피팅에서 제외한 점
