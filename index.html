@@ -241,7 +241,7 @@ footer a{color:var(--ink2)}
 
 <section class="panel" id="p-map">
   <h2>태양면 위 활성영역 위치</h2>
-  <p class="desc">지구에서 본 태양면(정사영). 날짜를 움직이면 흑점들이 동→서(왼→오른쪽)로 회전해 가는 것이 보입니다.</p>
+  <p class="desc">지구에서 본 태양면(정사영). 위치는 <b>NOAA SWPC Observer</b>의 하루 1회(약 00시 UTC) 보고값을 그대로 씁니다(중앙값 아님). 날짜를 움직이면 흑점들이 동→서(왼→오른쪽)로 회전해 가는 것이 보입니다. 상단의 소스·집계 선택과 무관하게 항상 NOAA 위치를 표시합니다.</p>
   <div class="rowctl">
     <input type="range" class="wide" id="mapDate" min="0" max="0" step="1" value="0">
     <span class="fv" id="mapDateV" style="min-width:100px"></span>
@@ -536,6 +536,26 @@ function rowsForModel(agg, srcMode) {
   }
   return _rowsCache.get(key);
 }
+// Disk-map positions come straight from NOAA SWPC Observer (src=1): it reports
+// once per day (~00:00 UTC), so its single detection IS the day's position — no
+// median needed. One row per (AR, day), keyed by day. src index 1 = NOAA.
+const NOAA_SRC = SRC_NAMES.indexOf("NOAA SWPC Observer");
+let _noaaMap = null;
+function noaaMapRows() {
+  if (_noaaMap) return _noaaMap;
+  const g = new Map();
+  for (const e of DET) {
+    if (e.src !== NOAA_SRC) continue;
+    if (!isFinite(e.lat) || !isFinite(e.carrLon) || Math.abs(e.stonyLon) > 60) continue;
+    const k = e.ar + "|" + e.date;
+    const prev = g.get(k);
+    if (!prev || e.ts < prev.ts) g.set(k, e); // earliest report of the day (~00:00)
+  }
+  _noaaMap = [...g.values()]
+    .map(e => [e.ar, e.date, e.stonyLon, e.lat, e.carrLon, 1])
+    .sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1));
+  return _noaaMap;
+}
 // full-data daily median (both sources) — drives the stable, source/agg-independent
 // UI bounds: selectable date range, AR list, and the hgc reference longitudes.
 const ALL_DAILY = aggregateDaily(DET, null);
@@ -592,12 +612,13 @@ function recompute() {
   const tracks = daily.length ? fitTracks(daily, SCREEN, state.coord, state.excluded) : [];
   const prof = fitProfile(tracks, { rmsMax: effRms(), minDays: state.minDays });
   const goodSet = new Set(prof.good.map(t => t.ar));
-  const dates = [...new Set(daily.map(r => r[1].slice(0, 10)))].sort(); // map slider steps by day
-  // The disk map is a positional snapshot: always one daily-median dot per AR
-  // (independent of the agg toggle) so raw mode doesn't scatter 6 dots/AR/day.
-  const mapDaily = rowsForModel("median", state.srcMode)
-    .filter(r => inWindow(r) && state.selected.has(r[0]));
-  M = { daily, tracks, prof, goodSet, dates, mapDaily };
+  const dates = [...new Set(daily.map(r => r[1].slice(0, 10)))].sort();
+  // The disk map is a positional snapshot straight from NOAA SWPC Observer's
+  // once-a-day (~00:00) report — no median, independent of the source/agg
+  // selectors. Its day list is its own (NOAA-reported days within the window).
+  const mapDaily = noaaMapRows().filter(r => inWindow(r) && state.selected.has(r[0]));
+  const mapDates = [...new Set(mapDaily.map(r => r[1]))].sort();
+  M = { daily, tracks, prof, goodSet, dates, mapDaily, mapDates };
 }
 
 // active regions that pass the quality filter across the current date window,
@@ -923,18 +944,17 @@ function renderTrack() {
 
 // ---------- solar disk map ----------
 function renderMapControls() {
-  const { dates } = M, sl = $("mapDate");
+  const { mapDates: dates } = M, sl = $("mapDate");
   sl.max = Math.max(0, dates.length - 1);
   if (state.mapIdx < 0 || state.mapIdx >= dates.length) {
-    const target = state.dateStart <= "2026-05-29" && "2026-05-29" <= state.dateEnd
-      ? "2026-05-29" : dates[Math.floor(dates.length / 2)];
+    const target = dates.includes("2026-05-29") ? "2026-05-29" : dates[Math.floor(dates.length / 2)];
     state.mapIdx = Math.max(0, dates.indexOf(target));
   }
   sl.value = state.mapIdx;
   $("mapDateV").textContent = dates[state.mapIdx] || "–";
 }
 function renderMap() {
-  const box = $("mapChart"), { mapDaily: daily, dates, goodSet } = M;
+  const box = $("mapChart"), { mapDaily: daily, mapDates: dates, goodSet } = M;
   const date = dates[state.mapIdx];
   $("mapDateV").textContent = date || "–";
   box.textContent = "";
@@ -990,7 +1010,7 @@ function renderMap() {
     const r = best.r;
     tt.show(best.x, best.y, `NOAA ${r[0]}`, [
       ["위도", fmt(r[3], 2) + "°"], ["Stonyhurst 경도", fmt(r[2], 2) + "°"],
-      ["Carrington 경도", fmt(((r[4] % 360) + 360) % 360, 2) + "°"], ["검출 수", r[5] + "회"],
+      ["Carrington 경도", fmt(((r[4] % 360) + 360) % 360, 2) + "°"], ["출처", "NOAA SWPC Observer"],
     ]);
   });
   svg.addEventListener("pointerleave", () => tt.hide());
@@ -1234,7 +1254,7 @@ $("mapPlay").addEventListener("click", () => {
   if (state.playing) { clearInterval(state.playing); state.playing = null; $("mapPlay").textContent = "▶ 재생"; return; }
   $("mapPlay").textContent = "⏸ 정지";
   state.playing = setInterval(() => {
-    state.mapIdx = (state.mapIdx + 1) % M.dates.length;
+    state.mapIdx = (state.mapIdx + 1) % M.mapDates.length;
     $("mapDate").value = state.mapIdx; renderMap();
   }, 260);
 });
